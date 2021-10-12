@@ -70,7 +70,14 @@ def get_arguments():
     return parser.parse_args()
 
 def read_fasta(amplicon_file, minseqlen):
-    pass
+    with gzip.open("monfichier.fasta.gzip", "rt") as  monfich:
+    for line in monfich:
+        if line.startswith(">"):
+            if len(seq) > minseqlen:
+                yield seq
+            seq = ""
+        else:
+            seq += line[:-1]
 
 
 def dereplication_fulllength(amplicon_file, minseqlen, mincount):
