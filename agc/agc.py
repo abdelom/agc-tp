@@ -70,7 +70,7 @@ def get_arguments():
     return parser.parse_args()
 
 def read_fasta(amplicon_file, minseqlen):
-    with gzip.open("monfichier.fasta.gzip", "rt") as  monfich:
+    with gzip.open(amplicon_file, "rt") as  monfich:
     for line in monfich:
         if line.startswith(">"):
             if len(seq) > minseqlen:
@@ -81,7 +81,15 @@ def read_fasta(amplicon_file, minseqlen):
 
 
 def dereplication_fulllength(amplicon_file, minseqlen, mincount):
-    pass
+    generator_seq = read_fasta(amplicon_file, minseqlen)
+    for seq in generator_seq:
+        if seq not in dict_seq.keys():
+            dict_seq[seq] = 1
+        else:
+            dict_seq[seq] += 1
+    dict_seq = sorted(dict_seq.items(), key=lambda x: x[1], reverse=True)
+    for elem in dict_seq():
+        yield list(elem)
 
 
 def get_unique(ids):
