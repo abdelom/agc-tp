@@ -134,6 +134,26 @@ def chimera_removal(amplicon_file, minseqlen, mincount, chunk_size, kmer_size):
 
 
 def abundance_greedy_clustering(amplicon_file, minseqlen, mincount, chunk_size, kmer_size):
+<<<<<<< HEAD
+    generator = list(chimera_removal(amplicon_file, minseqlen, mincount, chunk_size, kmer_size))
+    list_otu = [generator[0]]
+    nb_otu = 1
+    for sequence1 in generator[1:]:
+        index = 0
+        flag = True
+        print("a")
+        while index < nb_otu :
+            align = nw.global_align(sequence1[0], list_otu[index][0], gap_open=-1, gap_extend=-1,\
+            matrix=os.path.abspath(os.path.join(os.path.dirname(__file__),"MATCH")))
+            print(get_identity(align))
+            if get_identity(align) > 97.0:
+                flag = False
+                break
+            index += 1
+        if flag:
+            list_otu.append(list(sequence1))
+            nb_otu +=1
+=======
     generator = chimera_removal(amplicon_file, minseqlen, mincount, chunk_size, kmer_size)
     list_otu = []
     flag = True
@@ -151,6 +171,7 @@ def abundance_greedy_clustering(amplicon_file, minseqlen, mincount, chunk_size, 
                 elif get_identity(align) > 97.0 and sequence2[1] > sequence1[1]:
                     list_otu[index] = list(sequence1)
                 break
+>>>>>>> 14b12d7e047ec25e185a1d09e1b3d30a784cdf6a
     return list_otu
 
 def fill(text, width=80):
@@ -160,7 +181,11 @@ def fill(text, width=80):
 def write_OTU(OTU_list, output_file):
     with open(output_file, "w") as filout:
         for index, otu in enumerate(OTU_list):
+<<<<<<< HEAD
+            filout.write(f">OTU_{index + 1} occurrence:{otu[1]}\n")
+=======
             filout.write(">OTU_{} occurrence:{}\n".format(index + 1, otu[1]))
+>>>>>>> 14b12d7e047ec25e185a1d09e1b3d30a784cdf6a
             filout.write(fill(otu[0]) + '\n')
 
 
