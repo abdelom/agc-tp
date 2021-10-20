@@ -12,6 +12,7 @@
 #    http://www.gnu.org/licenses/gpl-3.0.html
 
 """OTU clustering"""
+import time
 import argparse
 import sys
 import os
@@ -74,7 +75,7 @@ def read_fasta(amplicon_file, minseqlen):
     Keyword arguments:
     amplicon file, str: entry file's name .fasta.gz
     minseqlen, int: minimum lengh neccessary to conserve
-    a sequence 
+    a sequence
     return value:
     sequence generator
     """
@@ -124,7 +125,6 @@ def common(lst1, lst2):
 
 
 def get_chunks(sequence, chunk_size):
-    """"""
     len_seq = len(sequence)
     if len_seq < chunk_size * 4:
         raise ValueError("Sequence length ({}) is too short to be splitted in 4"
@@ -194,7 +194,7 @@ def get_unique_kmer(kmer_dict, sequence, id_seq, kmer_size):
     for kmer in l_kmer:
         if kmer in kmer_dict:
             kmer_dict[kmer].append(id_seq)
-        else: 
+        else:
             kmer_dict[kmer] = [id_seq]
     return kmer_dict
 
@@ -243,6 +243,18 @@ def detect_chimera(perc_identity_matix):
 
 
 def chimera_removal(amplicon_file, minseqlen, mincount, chunk_size, kmer_size):
+    """retire les séquences chimérique
+    Keyword arguments:
+    amplicon file, str: entry file's name .fasta.gz
+    minseqlen, int: minimum lengh neccessary to conserve
+    a sequence
+    mincount, int: minimum count neccessary to conserve
+    a sequence
+    chunk_size, int, la taille des chunk
+    kmer_size, int: la taille des kmer
+    return value:
+    generateur de séquences
+    """
     generator = dereplication_fulllength(amplicon_file, minseqlen, mincount)
     i = 0
     not_chimeral = []
@@ -265,9 +277,9 @@ def chimera_removal(amplicon_file, minseqlen, mincount, chunk_size, kmer_size):
             for j in range(len(chunk_seq_list)):
                 for l, chunk in enumerate(chunk_list):
                     perc_identity_matrix[l].append(get_identity(
-                    nw.global_align(chunk, chunk_seq_list[j][l],
-                    gap_open=-1, gap_extend=-1, matrix=os.path.abspath(os.path.join(os.path.dirname(__file__),
-                    '../agc')) + "/MATCH")))
+                        nw.global_align(chunk, chunk_seq_list[j][l],
+                            gap_open=-1, gap_extend=-1, matrix=os.path.abspath(os.path.join(os.path.dirname(__file__),
+                                '../agc')) + "/MATCH")))
             if not detect_chimera(perc_identity_matrix):
                 k_mer_dict = get_unique_kmer(k_mer_dict, seq[0], i, kmer_size)
                 i += 1
@@ -323,8 +335,11 @@ def main():
     args = get_arguments()
     # Votre programme ici
     if args.output_file:
-        OTU_list = abundance_greedy_clustering(args.amplicon_file, args.minseqlen, args.mincount, args.chunk_size, args.kmer_size)
+        start = time.time()
+        OTU_list = abundance_greedy_clustering(args.amplicon_file, args.minseqlen,\
+        args.mincount, args.chunk_size, args.kmer_size)
         write_OTU(OTU_list, args.output_file)
+        print(time.time() - start)
 
 if __name__ == '__main__':
     main()
