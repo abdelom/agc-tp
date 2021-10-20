@@ -18,7 +18,6 @@ import os
 import gzip
 import statistics
 from collections import Counter
-from tqdm import tqdm
 # https://github.com/briney/nwalign3
 # ftp://ftp.ncbi.nih.gov/blast/matrices/
 import nwalign3 as nw
@@ -71,6 +70,14 @@ def get_arguments():
 
 
 def read_fasta(amplicon_file, minseqlen):
+    """
+    Keyword arguments:
+    amplicon file, str: entry file's name .fasta.gz
+    minseqlen, int: minimum lengh neccessary to conserve
+    a sequence 
+    return value:
+    sequence generator
+    """
     with gzip.open(amplicon_file, "rt") as  monfich:
         seq = ""
         for line in monfich:
@@ -84,6 +91,17 @@ def read_fasta(amplicon_file, minseqlen):
 
 
 def dereplication_fulllength(amplicon_file, minseqlen, mincount):
+    """
+    Keyword arguments:
+    amplicon file, str: entry file's name .fasta.gz
+    minseqlen, int: minimum lengh neccessary to conserve
+    a sequence
+    mincount, int: minimum count neccessary to conserve
+    a sequence
+
+    return value:
+    sequence generator
+    """
     generator_seq = read_fasta(amplicon_file, minseqlen)
     dict_seq = {}
     for seq in generator_seq:
@@ -117,14 +135,27 @@ def get_chunks(sequence, chunk_size):
 
 
 def cut_kmer(sequence, kmer_size):
-    """Cut sequence into kmers"""
+    """Cut sequence into kmers
+    Keyword arguments:
+    sequence, str: sequence to cur into kmer
+    kmer_size, int: kmer length
+
+    return value:
+    kmer generator
+    """
     for i in range(0, len(sequence) - kmer_size + 1):
         yield sequence[i:i+kmer_size]
 
 
 def get_identity(alignment_list):
     """Prend en une liste de séquences alignées au format ["SE-QUENCE1", "SE-QUENCE2"]
-    Retourne le pourcentage d'identite entre les deux."""
+    Retourne le pourcentage d'identite entre les deux.
+    Keyword arguments:
+    alignement_list: liste de deux str
+    un alignment
+    return value:
+    float, identity percentage between the two sequence
+    """
     id_nu = 0
     for i in range(len(alignment_list[0])):
         if alignment_list[0][i] == alignment_list[1][i]:
@@ -132,7 +163,131 @@ def get_identity(alignment_list):
     return round(100.0 * id_nu / len(alignment_list[0]), 2)
 
 
+def fill(text, width=80):
+    """Sp, lit text with a line return to respect fasta format"""
+    return os.linesep.join(text[i:i+width] for i in range(0, len(text), width))
+
+
+def write_OTU(OTU_list, output_file):
+    """sauvegarde des otus dans un fichier au format fasta
+    Keyword arguments:
+    otu_LIST, list: liste d'otu
+    output_file, str: nom du fichier de sauvegarde
+    """
+    with open(output_file, "w") as filout:
+        for index, otu in enumerate(OTU_list):
+            filout.write(f">OTU_{index + 1} occurrence:{otu[1]}\n")
+            filout.write(fill(otu[0]) + '\n')
+
+
+def get_unique_kmer(kmer_dict, sequence, id_seq, kmer_size):
+    """
+    arguments:
+    kmer_dict, dictionnaire: clé: kmer, valeur: liste de séquence contenat le kmer
+    sequence, str: séquence
+    id_seq: id de la séquence
+    kmer_size, int: taille de kmer
+    return value:
+    kmer_dict, dictionnaire: clé: kmer, valeur: liste de séquence contenat le kmer
+    """
+    l_kmer = get_unique(cut_kmer(sequence, kmer_size))
+    for kmer in l_kmer:
+        if kmer in kmer_dict:
+            kmer_dict[kmer].append(id_seq)
+        else: 
+            kmer_dict[kmer] = [id_seq]
+    return kmer_dict
+
+
+def search_mates(kmer_dict, sequence, kmer_size):
+    """
+    arguments:
+    kmer_dict, dictionnaire: clé: kmer, valeur: liste de séquence contenat le kmer
+    sequence, str: chunk
+    id_seq: id de la séquence
+    kmer_size, int: taille de kmer
+    return value:
+    list, de  taille 2 avec l'id des deux séquence partageant le plus de kmer avec
+    le chunk
+    """
+    liste = []
+    for kmer in cut_kmer(sequence, kmer_size):
+        if kmer not in kmer_dict:
+            continue
+        liste += kmer_dict[kmer]
+    best = Counter(liste).most_common(2)
+    return [best[0][0], best[1][0]]
+
+
+def detect_chimera(perc_identity_matix):
+    """
+    détermine si une séquence est chmérique ou non
+    argument:
+    perc_identity_matix, matrice: contient le taux d'itentité entre
+    les chunk et les séquences parentes
+    return value:
+    Booléen, false, si la séquence n'est pas chimérique, true sinon
+    """
+    mean_std = statistics.mean([statistics.stdev(seg) for seg in perc_identity_matix])
+    if mean_std < 5.0:
+        return False
+    flag = 0
+    if perc_identity_matix[0][0] > perc_identity_matix[0][1]:
+        flag = 1
+    for seg in perc_identity_matix:
+        if flag == 0 and seg[0] > seg[1]:
+            return True
+        if flag == 1 and seg[0] < seg[1]:
+            return True
+    return False
+
+
+def chimera_removal(amplicon_file, minseqlen, mincount, chunk_size, kmer_size):
+    generator = dereplication_fulllength(amplicon_file, minseqlen, mincount)
+    i = 0
+    not_chimeral = []
+    k_mer_dict = {}
+    for seq in generator:
+        if i < 2:
+            k_mer_dict = get_unique_kmer(k_mer_dict, seq[0], i, kmer_size)
+            i += 1
+            not_chimeral.append(seq[0])
+            yield seq
+        else:
+            best = []
+            chunk_list = get_chunks(seq[0], chunk_size)
+            for chunk in chunk_list:
+                best += search_mates(k_mer_dict, chunk, kmer_size)
+            best = Counter(best).most_common(2)
+            chunk_seq_list = [get_chunks(not_chimeral[best[0][0]], chunk_size)]
+            chunk_seq_list += [get_chunks(not_chimeral[best[1][0]], chunk_size)]
+            perc_identity_matrix = [[] for c in range(len(chunk_list))]
+            for j in range(len(chunk_seq_list)):
+                for l, chunk in enumerate(chunk_list):
+                    perc_identity_matrix[l].append(get_identity(
+                    nw.global_align(chunk, chunk_seq_list[j][l],
+                    gap_open=-1, gap_extend=-1, matrix=os.path.abspath(os.path.join(os.path.dirname(__file__),
+                    '../agc')) + "/MATCH")))
+            if not detect_chimera(perc_identity_matrix):
+                k_mer_dict = get_unique_kmer(k_mer_dict, seq[0], i, kmer_size)
+                i += 1
+                not_chimeral.append(seq[0])
+                yield seq
+
+
 def abundance_greedy_clustering(amplicon_file, minseqlen, mincount, chunk_size, kmer_size):
+    """effectue les différentes étapes de filtrage.
+    une fois les chimères enlevés, la fonction réalise une approche gloutone pour constitué
+    la lisste d'otu
+    Keyword arguments:
+    amplicon file, str: entry file's name .fasta.gz
+    minseqlen, int: minimum lengh neccessary to conserve
+    a sequence
+    mincount, int: minimum count neccessary to conserve
+    a sequence
+    return value:
+    list, la liste d'otu
+    """
     generator = chimera_removal(amplicon_file, minseqlen, mincount, chunk_size, kmer_size)
     list_otu = []
     nb_otu = 1
@@ -155,115 +310,6 @@ def abundance_greedy_clustering(amplicon_file, minseqlen, mincount, chunk_size, 
                 list_otu.append(list(sequence1))
                 nb_otu += 1
     return list_otu
-
-
-def fill(text, width=80):
-    """Sp, lit text with a line return to respect fasta format"""
-    return os.linesep.join(text[i:i+width] for i in range(0, len(text), width))
-
-
-def write_OTU(OTU_list, output_file):
-    with open(output_file, "w") as filout:
-        for index, otu in enumerate(OTU_list):
-            filout.write(f">OTU_{index + 1} occurrence:{otu[1]}\n")
-            filout.write(fill(otu[0]) + '\n')
-
-"""
-def get_unique_kmer(kmer_dict, sequence, id_seq, kmer_size):
-    l_kmer = get_unique(cut_kmer(sequence, kmer_size))
-    for kmer in l_kmer:
-        try : 
-            kmer_dict[kmer].append(id_seq)
-        except: 
-            kmer_dict[kmer] = [id_seq]
-    return kmer_dict
-"""
-def get_unique_kmer(kmer_dict, sequence, id_seq, kmer_size):
-    l_kmer = get_unique(cut_kmer(sequence, kmer_size))
-    for kmer in l_kmer:
-        try : 
-            kmer_dict[kmer].append(id_seq)
-        except: 
-            kmer_dict[kmer] = [id_seq]
-        #if kmer not in kmer_dict.keys():
-         #   kmer_dict[kmer] = [id_seq]
-        #else:
-         #   kmer_dict[kmer].append(id_seq)
-    return kmer_dict
-
-"""
-def search_mates(kmer_dict, sequence, kmer_size):
-<<<<<<< HEAD
-=======
-    generator_kmer = common(cut_kmer(sequence, kmer_size), kmer_dict.keys())
-    list_tmp = []
-    for k_mer in generator_kmer:
-        list_tmp = list_tmp + kmer_dict[k_mer]
-    best_mates = Counter(list_tmp).most_common(2)
-    return [best_mates[0][0], best_mates[1][0]]
-"""
-
-def search_mates(kmer_dict, sequence, kmer_size):
-    allfound = []
-    for kmer in cut_kmer(sequence, kmer_size):
-        if kmer not in kmer_dict:
-            continue
-        allfound += kmer_dict[kmer]
-    best_mates = Counter(allfound).most_common(2)
-    return [seq_id for seq_id, count in best_mates]
-
-
-def detect_chimera(perc_identity_matix):
-    mean_std = statistics.mean([statistics.stdev(seg) for seg in perc_identity_matix])
-    if mean_std < 5.0:
-        return False
-    flag = 0
-    if perc_identity_matix[0][0] > perc_identity_matix[0][1]:
-        flag = 1
-    for seg in perc_identity_matix:
-        if flag == 0 and seg[0] > seg[1]:
-            return True
-        if flag == 1 and seg[0] < seg[1]:
-            return True
-    return False
-
-
-def chimera_removal(amplicon_file, minseqlen, mincount, chunk_size, kmer_size):
-    generator = list(dereplication_fulllength(amplicon_file, minseqlen, mincount))
-    i = 0
-    not_chimeral = []
-    k_mer_dict = {}
-    counter = 0
-    for seq in tqdm(generator, total = len(generator)):
-        if i < 2:
-            k_mer_dict = get_unique_kmer(k_mer_dict, seq[0], i, kmer_size)
-            i += 1
-            not_chimeral.append(seq[0])
-            yield seq
-        else:
-            best = []
-            chunk_list = get_chunks(seq[0], chunk_size)
-            for chunk in chunk_list:
-                best += search_mates(k_mer_dict, chunk, kmer_size)
-            best = Counter(best).most_common(2)
-            print(best)
-            chunk_seq_list = [get_chunks(not_chimeral[best[0][0]], chunk_size)]
-            chunk_seq_list += [get_chunks(not_chimeral[best[1][0]], chunk_size)]
-            perc_identity_matrix = [[] for c in range(len(chunk_list))]
-            for j in range(len(chunk_seq_list)):
-                for l, chunk in enumerate(chunk_list):
-                    perc_identity_matrix[l].append(get_identity(
-                    nw.global_align(chunk, chunk_seq_list[j][l],
-                    gap_open=-1, gap_extend=-1, matrix=os.path.abspath(os.path.join(os.path.dirname(__file__),
-                    '../agc')) + "/MATCH")))
-            if not detect_chimera(perc_identity_matrix):
-                k_mer_dict = get_unique_kmer(k_mer_dict, seq[0], i, kmer_size)
-                i += 1
-                not_chimeral.append(seq[0])
-                yield seq
-
-
-
 
 
 #==============================================================
